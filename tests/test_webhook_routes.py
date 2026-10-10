@@ -42,6 +42,33 @@ def test_push_missing_repository_returns_400(client):
     assert response.status_code == 400
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        "str",
+        {"repository": "x"},
+        {"repository": {"full_name": 5}},
+        {"ref": 5, "repository": {"full_name": "a/b"}},
+        {"head_commit": "x", "repository": {"full_name": "a/b"}},
+        {"after": 123, "repository": {"full_name": "a/b"}},
+    ],
+)
+def test_push_with_wrong_shaped_payload_returns_400_not_500(client, payload):
+    body = json.dumps(payload).encode()
+    with patch("app.routes.webhook.WEBHOOK_SECRET", "correct-secret"):
+        response = client.post(
+            "/webhook/github",
+            content=body,
+            headers={
+                "X-GitHub-Event": "push",
+                "X-Hub-Signature-256": _sign(body, "correct-secret"),
+                "Content-Type": "application/json",
+            },
+        )
+    assert response.status_code == 400
+
+
 def test_push_with_wrong_signature_is_rejected(client):
     body = json.dumps({"ref": "refs/heads/main", "repository": {"full_name": "a/b"}}).encode()
     with patch("app.routes.webhook.WEBHOOK_SECRET", "correct-secret"):

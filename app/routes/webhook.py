@@ -57,11 +57,31 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.info(f"Ignoring unhandled webhook event type: {event or '(missing)'}")
         return {"status": "ignored", "event": event}
 
+    # A correctly signed body can still be the wrong shape (a JSON list, a
+    # string, wrong field types). Reject those with a 400 instead of letting
+    # an AttributeError surface as a 500.
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Payload must be a JSON object")
+
     repository = payload.get("repository") or {}
+    if not isinstance(repository, dict):
+        raise HTTPException(status_code=400, detail="Payload has an invalid 'repository' field")
+
     repo_name = repository.get("full_name", "")
-    ref = payload.get("ref", "")
+    if not isinstance(repo_name, str):
+        raise HTTPException(status_code=400, detail="Payload has an invalid 'repository.full_name' field")
+
+    ref = payload.get("ref") or ""
+    if not isinstance(ref, str):
+        raise HTTPException(status_code=400, detail="Payload has an invalid 'ref' field")
     branch = ref.replace("refs/heads/", "") if ref else "main"
-    commit_sha = payload.get("after") or (payload.get("head_commit") or {}).get("id")
+
+    head_commit = payload.get("head_commit") or {}
+    if not isinstance(head_commit, dict):
+        raise HTTPException(status_code=400, detail="Payload has an invalid 'head_commit' field")
+    commit_sha = payload.get("after") or head_commit.get("id")
+    if commit_sha is not None and not isinstance(commit_sha, str):
+        raise HTTPException(status_code=400, detail="Payload has an invalid commit SHA")
 
     if not repo_name:
         raise HTTPException(status_code=400, detail="Payload missing repository information")

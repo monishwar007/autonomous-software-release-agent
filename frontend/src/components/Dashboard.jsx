@@ -11,7 +11,7 @@ import DecisionCard from './DecisionCard';
 import LogsViewer from './LogsViewer';
 import CommitInfo from './CommitInfo';
 import Recommendations from './Recommendations';
-import { triggerAnalysis, getHistory, getStats, getMockAnalysis, getMockHistory } from '../services/api';
+import { triggerAnalysis, getHistory, getStats } from '../services/api';
 
 export default function Dashboard() {
     const [analysisResult, setAnalysisResult] = useState(null);
@@ -55,6 +55,7 @@ export default function Dashboard() {
             }
         } catch (err) {
             console.error('Failed to load live data:', err);
+            setNotification({ type: 'error', message: 'Could not load data from the backend. Is the API running on port 8000?' });
         }
     }
 
@@ -91,6 +92,7 @@ export default function Dashboard() {
             });
         } catch (err) {
             console.error('Analysis failed:', err);
+            setNotification({ type: 'error', message: `Analysis failed: ${err?.message || 'unknown error'}` });
         } finally {
             setLoading(false);
         }
