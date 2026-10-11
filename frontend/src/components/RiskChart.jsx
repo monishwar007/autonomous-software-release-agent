@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import RiskGauge3D from './RiskGauge3D';
 
@@ -32,11 +32,16 @@ export default function RiskChart({ riskScore = 0, commit }) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 20, alignItems: 'center' }}>
                 <div style={{ height: 220, position: 'relative' }}>
-                    <Canvas camera={{ position: [0, 0, 6], fov: 45 }}>
-                        <ambientLight intensity={0.5} />
-                        <pointLight position={[10, 10, 10]} intensity={1} />
-                        <RiskGauge3D riskLevel={Math.round(riskScore * 100)} />
-                    </Canvas>
+                    {/* A <Canvas> suspends its parent while its 3D content (e.g. the
+                        gauge's font) loads. This boundary keeps that wait local to the
+                        canvas, so the panel's text stays visible meanwhile. */}
+                    <Suspense fallback={null}>
+                        <Canvas camera={{ position: [0, 0, 6], fov: 45 }}>
+                            <ambientLight intensity={0.5} />
+                            <pointLight position={[10, 10, 10]} intensity={1} />
+                            <RiskGauge3D riskLevel={Math.round(riskScore * 100)} />
+                        </Canvas>
+                    </Suspense>
                 </div>
 
                 <div className="risk-gauge" style={{ position: 'relative', zIndex: 1, padding: 0, alignItems: 'flex-start' }}>

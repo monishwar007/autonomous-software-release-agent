@@ -110,6 +110,31 @@ def test_no_clonable_repo_uses_simulated_fallbacks():
     mock_run_scan.assert_not_called()
 
 
+def test_history_entry_stores_real_test_and_security_counts():
+    """The dashboard rebuilds its latest result from history on page reload,
+    so history must carry the real counts (not just a pass/fail flag)."""
+    decision_engine.decision_history.clear()
+    tests = TestResult(passed=False, total_tests=12, passed_tests=9, failed_tests=3)
+    security = SecuritySummary(critical=1, high=2, medium=3, low=4, issues=[], scanned_files=7, duration=1.5)
+    values = _patched_pipeline(run_tests=tests, run_security_scan=security)
+    with patch("app.services.decision_engine.get_latest_commit", return_value=values["get_latest_commit"]), \
+         patch("app.services.decision_engine.clone_repository", return_value=values["clone_repository"]), \
+         patch("app.services.decision_engine.cleanup_repository"), \
+         patch("app.services.decision_engine.run_tests", return_value=tests), \
+         patch("app.services.decision_engine.run_security_scan", return_value=security), \
+         patch("app.services.decision_engine.get_ai_evaluation", return_value=values["get_ai_evaluation"]):
+        decision_engine.analyze_release(repo="owner/repo", branch="main")
+
+    entry = decision_engine.get_decision_history()[0]
+    assert entry["test_passed"] is False
+    assert (entry["total_tests"], entry["passed_tests"], entry["failed_tests"]) == (12, 9, 3)
+    assert (entry["security_critical"], entry["security_high"]) == (1, 2)
+    assert (entry["security_medium"], entry["security_low"]) == (3, 4)
+    # _commit() fixture: 5 additions, 1 deletion, one file
+    assert (entry["additions"], entry["deletions"]) == (5, 1)
+    assert entry["files_changed"] == ["a.py"]
+
+
 def test_decision_history_grows_and_stats_update():
     decision_engine.decision_history.clear()
     values = _patched_pipeline()

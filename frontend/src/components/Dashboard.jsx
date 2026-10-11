@@ -1,17 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
-import Scene from './Scene';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import ScrambleText from './ScrambleText';
 import { ErrorBoundary } from '../ErrorBoundary';
-import RiskChart from './RiskChart';
-import SecurityChart from './SecurityChart';
-import TestSummary from './TestSummary';
 import DecisionCard from './DecisionCard';
 import LogsViewer from './LogsViewer';
 import CommitInfo from './CommitInfo';
 import Recommendations from './Recommendations';
 import { triggerAnalysis, getHistory, getStats } from '../services/api';
+
+// Everything that pulls in three.js is loaded on demand, so the dashboard
+// shell (sidebar, stats, history) renders without waiting for the ~0.7 MB
+// 3D library. Vite turns each dynamic import into its own chunk.
+const SceneCanvas = lazy(() => import('./SceneCanvas'));
+const RiskChart = lazy(() => import('./RiskChart'));
+const SecurityChart = lazy(() => import('./SecurityChart'));
+const TestSummary = lazy(() => import('./TestSummary'));
+
+// Placeholder shown in a panel's slot while its chunk downloads.
+function PanelFallback() {
+    return <div className="glass-panel" style={{ minHeight: 280 }} aria-busy="true" />;
+}
 
 export default function Dashboard() {
     const [analysisResult, setAnalysisResult] = useState(null);
@@ -43,9 +50,21 @@ export default function Dashboard() {
                 const latest = histRes.history[0];
                 setAnalysisResult({
                     analysis: {
-                        commit: { commit_id: latest.commit_id, author: latest.author, message: latest.message, additions: 0, deletions: 0, files_changed: [] },
-                        tests: { passed: latest.test_passed, total_tests: 24, passed_tests: latest.test_passed ? 24 : 18, failed_tests: latest.test_passed ? 0 : 6 },
-                        security: { critical: latest.security_critical, high: latest.security_high || 0, medium: 0, low: 0 },
+                        commit: {
+                            commit_id: latest.commit_id, author: latest.author, message: latest.message,
+                            additions: latest.additions || 0, deletions: latest.deletions || 0, files_changed: latest.files_changed || [],
+                        },
+                        // Real values stored by the backend with each analysis.
+                        tests: {
+                            passed: latest.test_passed,
+                            total_tests: latest.total_tests || 0,
+                            passed_tests: latest.passed_tests || 0,
+                            failed_tests: latest.failed_tests || 0,
+                        },
+                        security: {
+                            critical: latest.security_critical || 0, high: latest.security_high || 0,
+                            medium: latest.security_medium || 0, low: latest.security_low || 0,
+                        },
                         risk_score: latest.risk_score,
                         decision: latest.decision ? latest.decision.toLowerCase() : 'hold',
                         reasoning: latest.reasoning,
@@ -75,8 +94,16 @@ export default function Dashboard() {
                 risk_score: result.analysis.risk_score,
                 reasoning: result.analysis.reasoning,
                 test_passed: result.analysis.tests.passed,
+                total_tests: result.analysis.tests.total_tests || 0,
+                passed_tests: result.analysis.tests.passed_tests || 0,
+                failed_tests: result.analysis.tests.failed_tests || 0,
                 security_critical: result.analysis.security.critical,
                 security_high: result.analysis.security.high,
+                security_medium: result.analysis.security.medium,
+                security_low: result.analysis.security.low,
+                additions: result.analysis.commit.additions || 0,
+                deletions: result.analysis.commit.deletions || 0,
+                files_changed: result.analysis.commit.files_changed || [],
                 timestamp: result.analysis.timestamp,
             };
             setHistory(prev => [entry, ...prev]);
@@ -172,8 +199,9 @@ END OF REPORT
     }
 
     const a = analysisResult?.analysis;
-    const sec = a?.security || { critical: 0, high: 2, medium: 4, low: 7 };
-    const test = a?.tests || { passed: true, total_tests: 24, passed_tests: 22, failed_tests: 2 };
+    // Before any analysis has run there is no data: show zeros, not demo numbers.
+    const sec = a?.security || { critical: 0, high: 0, medium: 0, low: 0 };
+    const test = a?.tests || { passed: true, total_tests: 0, passed_tests: 0, failed_tests: 0 };
     const risk = a?.risk_score ?? stats?.average_risk_score ?? 0;
 
     const filteredHistory = historyFilter === 'all' ? history : history.filter(h => h.decision === historyFilter);
@@ -196,9 +224,9 @@ END OF REPORT
     return (
         <div className="app-layout">
             <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0, pointerEvents: 'none' }}>
-                <Canvas camera={{ position: [0, 0, 15], fov: 60 }}>
-                    <Scene riskScore={risk * 100} />
-                </Canvas>
+                <Suspense fallback={null}>
+                    <SceneCanvas riskScore={risk * 100} />
+                </Suspense>
             </div>
             
             {/* ===== NOTIFICATION TOAST ===== */}
@@ -410,12 +438,12 @@ END OF REPORT
 
                             {/* Detailed Monitoring Panels */}
                             <div className="panel-grid">
-                                <div id="risk-section"><ErrorBoundary><RiskChart riskScore={risk} commit={a?.commit} /></ErrorBoundary></div>
-                                <div id="security-section"><ErrorBoundary><SecurityChart data={sec} /></ErrorBoundary></div>
+                                <div id="risk-section"><ErrorBoundary><Suspense fallback={<PanelFallback />}><RiskChart riskScore={risk} commit={a?.commit} /></Suspense></ErrorBoundary></div>
+                                <div id="security-section"><ErrorBoundary><Suspense fallback={<PanelFallback />}><SecurityChart data={sec} /></Suspense></ErrorBoundary></div>
                             </div>
 
                             <div className="panel-grid" id="tests-section">
-                                <ErrorBoundary><TestSummary data={test} /></ErrorBoundary>
+                                <ErrorBoundary><Suspense fallback={<PanelFallback />}><TestSummary data={test} /></Suspense></ErrorBoundary>
                                 <ErrorBoundary><CommitInfo commit={a?.commit} /></ErrorBoundary>
                             </div>
 

@@ -1,19 +1,26 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import TestBox3D from './TestBox3D';
 
 export default function TestSummary({ data }) {
-    const { total_tests = 24, passed_tests = 22, failed_tests = 2 } = data || {};
-    const pct = total_tests > 0 ? Math.round((passed_tests / total_tests) * 100) : 100;
+    // No demo fallbacks: until an analysis has run, every count is 0.
+    const { total_tests = 0, passed_tests = 0, failed_tests = 0 } = data || {};
+    const hasTests = total_tests > 0;
+    const pct = hasTests ? Math.round((passed_tests / total_tests) * 100) : 0;
     const circ = 2 * Math.PI * 58;
     const offset = circ * (1 - pct / 100);
 
-    // Suite breakdown
-    const suites = [
-        { name: 'Unit Tests', total: 15, passed: 15 },
-        { name: 'Integration Tests', total: 7, passed: failed_tests > 0 ? 5 : 7 },
-        { name: 'E2E Tests', total: 2, passed: 2 },
-    ];
+    // The backend counts skipped tests in the total but does not report them
+    // separately, so derive them rather than leaving passed + failed != total.
+    const skipped = Math.max(total_tests - passed_tests - failed_tests, 0);
+
+    // Overall breakdown, computed only from the real counts. (The backend does
+    // not report a per-suite split, so none is shown.)
+    const rows = [{ name: 'Total tests', value: String(total_tests) }];
+    if (skipped > 0) rows.push({ name: 'Skipped', value: String(skipped) });
+    if (!hasTests) rows.push({ name: 'Result', value: 'No tests collected' });
+    else if (failed_tests > 0) rows.push({ name: 'Result', value: `${failed_tests} failing ✗`, cls: 'fail' });
+    else rows.push({ name: 'Result', value: 'All passing ✓', cls: 'pass' });
 
     return (
         <div className="glass-panel" style={{ position: 'relative', overflow: 'hidden' }}>
@@ -36,8 +43,8 @@ export default function TestSummary({ data }) {
                                 strokeDasharray={circ} strokeDashoffset={offset} />
                         </svg>
                         <div className="test-donut__center">
-                            <div className="test-donut__pct" style={{ fontSize: 24 }}>{pct}%</div>
-                            <div className="test-donut__pct-label" style={{ fontSize: 9 }}>Passed</div>
+                            <div className="test-donut__pct" style={{ fontSize: 24 }}>{hasTests ? `${pct}%` : '—'}</div>
+                            <div className="test-donut__pct-label" style={{ fontSize: 9 }}>{hasTests ? 'Passed' : 'No tests'}</div>
                         </div>
                     </div>
 
@@ -52,30 +59,28 @@ export default function TestSummary({ data }) {
                         </div>
                     </div>
                 </div>
-                
+
                 <div style={{ height: 200, position: 'relative' }}>
-                    <Canvas camera={{ position: [0, 0, 8], fov: 40 }}>
-                        <ambientLight intensity={0.5} />
-                        <pointLight position={[10, 10, 10]} intensity={1} />
-                        <TestBox3D total={total_tests} passed={passed_tests} />
-                    </Canvas>
+                    <Suspense fallback={null}>
+                        <Canvas camera={{ position: [0, 0, 8], fov: 40 }}>
+                            <ambientLight intensity={0.5} />
+                            <pointLight position={[10, 10, 10]} intensity={1} />
+                            <TestBox3D total={total_tests} passed={passed_tests} />
+                        </Canvas>
+                    </Suspense>
                 </div>
             </div>
 
             <div className="test-suites" style={{ position: 'relative', zIndex: 1 }}>
-                {suites.map((s, i) => {
-                    const allPass = s.passed === s.total;
-                    return (
-                        <div className="test-suite" key={i}>
-                            <span className="test-suite__name">{s.name}</span>
-                            <span className={`test-suite__result ${allPass ? 'test-suite__result--pass' : 'test-suite__result--fail'}`}>
-                                {s.passed}/{s.total} {allPass ? '✓' : '✗'}
-                            </span>
-                        </div>
-                    );
-                })}
+                {rows.map((r) => (
+                    <div className="test-suite" key={r.name}>
+                        <span className="test-suite__name">{r.name}</span>
+                        <span className={`test-suite__result${r.cls ? ` test-suite__result--${r.cls}` : ''}`}>
+                            {r.value}
+                        </span>
+                    </div>
+                ))}
             </div>
         </div>
     );
 }
-

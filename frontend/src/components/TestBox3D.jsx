@@ -3,18 +3,23 @@ import { useFrame } from '@react-three/fiber';
 import { Box, Float } from '@react-three/drei';
 import * as THREE from 'three';
 
-export default function TestBox3D({ total = 24, passed = 22 }) {
+// One cube per test would be unreadable (and slow) for a real suite with
+// hundreds of tests, so draw at most MAX_BOXES cubes, keeping the pass ratio.
+const MAX_BOXES = 30;
+
+export default function TestBox3D({ total = 0, passed = 0 }) {
   const groupRef = useRef();
-  const failed = total - passed;
-  
+
   const boxes = useMemo(() => {
-    return Array.from({ length: total }).map((_, i) => ({
+    const shown = Math.min(total, MAX_BOXES);
+    const shownPassed = total > MAX_BOXES ? Math.round((passed / total) * MAX_BOXES) : passed;
+    return Array.from({ length: shown }).map((_, i) => ({
       position: [
         (i % 5) - 2,
         Math.floor(i / 5) - 2,
         0
       ],
-      isPassed: i < passed
+      isPassed: i < shownPassed
     }));
   }, [total, passed]);
 

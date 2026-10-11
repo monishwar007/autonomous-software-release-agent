@@ -116,8 +116,18 @@ def analyze_release(repo: str = "", commit_id: str = "", branch: str = "main") -
         "reasoning": reasoning,
         "recommendations": recommendations,
         "test_passed": test_results.passed,
+        # Real counts, so the dashboard can rebuild the full result on page
+        # reload from history alone, instead of guessing/hardcoding them.
+        "total_tests": test_results.total_tests,
+        "passed_tests": test_results.passed_tests,
+        "failed_tests": test_results.failed_tests,
         "security_critical": security_results.critical,
         "security_high": security_results.high,
+        "security_medium": security_results.medium,
+        "security_low": security_results.low,
+        "additions": commit_data.additions,
+        "deletions": commit_data.deletions,
+        "files_changed": commit_data.files_changed,
         "timestamp": analysis.timestamp,
     }
     decision_history.append(history_entry)

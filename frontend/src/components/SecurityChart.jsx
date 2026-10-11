@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import SecurityShield3D from './SecurityShield3D';
 
@@ -43,11 +43,13 @@ export default function SecurityChart({ data }) {
                 </div>
                 
                 <div style={{ height: 180, position: 'relative' }}>
-                    <Canvas camera={{ position: [0, 0, 8], fov: 45 }}>
-                        <ambientLight intensity={0.5} />
-                        <pointLight position={[10, 10, 10]} intensity={1} />
-                        <SecurityShield3D critical={critical} high={high} />
-                    </Canvas>
+                    <Suspense fallback={null}>
+                        <Canvas camera={{ position: [0, 0, 8], fov: 45 }}>
+                            <ambientLight intensity={0.5} />
+                            <pointLight position={[10, 10, 10]} intensity={1} />
+                            <SecurityShield3D critical={critical} high={high} />
+                        </Canvas>
+                    </Suspense>
                 </div>
             </div>
 
