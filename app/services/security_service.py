@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import json
 import random
 from app.utils.logger import logger
@@ -10,9 +11,14 @@ def run_security_scan(target_dir: str = ".") -> SecuritySummary:
     try:
         import time
         start_time = time.time()
-        
+
+        # Invoke bandit as "python -m bandit" with the same interpreter
+        # running this app, rather than relying on a "bandit" executable
+        # being on PATH. A bare PATH lookup silently misses bandit whenever
+        # the host venv isn't activated (services, docker exec, cron, ...),
+        # which used to degrade every real scan to simulated results.
         result = subprocess.run(
-            ["bandit", "-r", target_dir, "-f", "json"],
+            [sys.executable, "-m", "bandit", "-r", target_dir, "-f", "json"],
             capture_output=True,
             text=True,
             timeout=60,

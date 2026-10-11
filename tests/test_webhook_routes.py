@@ -19,27 +19,56 @@ def _sign(body: bytes, secret: str) -> str:
     return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
+def _post_signed(client, payload: dict, event: str, secret: str = "correct-secret"):
+    """POST a JSON payload to the webhook with a valid HMAC signature."""
+    body = json.dumps(payload).encode()
+    with patch("app.routes.webhook.WEBHOOK_SECRET", secret):
+        return client.post(
+            "/webhook/github",
+            content=body,
+            headers={
+                "X-GitHub-Event": event,
+                "X-Hub-Signature-256": _sign(body, secret),
+                "Content-Type": "application/json",
+            },
+        )
+
+
 def test_ping_event_short_circuits(client):
-    response = client.post(
-        "/webhook/github", json={"zen": "hi"}, headers={"X-GitHub-Event": "ping"}
-    )
+    response = _post_signed(client, {"zen": "hi"}, event="ping")
     assert response.status_code == 200
     assert response.json()["status"] == "pong"
 
 
 def test_unhandled_event_type_is_ignored_not_errored(client):
-    response = client.post(
-        "/webhook/github", json={"action": "opened"}, headers={"X-GitHub-Event": "issues"}
-    )
+    response = _post_signed(client, {"action": "opened"}, event="issues")
     assert response.status_code == 200
     assert response.json()["status"] == "ignored"
 
 
 def test_push_missing_repository_returns_400(client):
-    response = client.post(
-        "/webhook/github", json={"ref": "refs/heads/main"}, headers={"X-GitHub-Event": "push"}
-    )
+    response = _post_signed(client, {"ref": "refs/heads/main"}, event="push")
     assert response.status_code == 400
+
+
+def test_unsigned_delivery_rejected_by_default(client):
+    """Fail-closed: with no WEBHOOK_SECRET configured and no opt-in, even
+    a well-formed ping is rejected -- forged deliveries must not reach
+    event handling."""
+    response = client.post(
+        "/webhook/github", json={"zen": "hi"}, headers={"X-GitHub-Event": "ping"}
+    )
+    assert response.status_code == 401
+
+
+def test_unsigned_delivery_allowed_with_explicit_opt_in(client):
+    """ALLOW_UNSIGNED_WEBHOOKS=true restores the permissive demo behavior."""
+    with patch("app.utils.webhook_security.ALLOW_UNSIGNED_WEBHOOKS", True):
+        response = client.post(
+            "/webhook/github", json={"zen": "hi"}, headers={"X-GitHub-Event": "ping"}
+        )
+    assert response.status_code == 200
+    assert response.json()["status"] == "pong"
 
 
 @pytest.mark.parametrize(

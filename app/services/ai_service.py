@@ -1,4 +1,5 @@
 import json
+import re
 from app.utils.logger import logger
 from app.config import GROQ_API_KEY, GROQ_MODEL
 
@@ -83,39 +84,80 @@ def _rule_based_evaluation(commit_data: dict, test_results: dict, security_resul
     """Fallback rule-based evaluation when AI is unavailable."""
     risk_score = 0.0
 
-    # Test failures increase risk
-    if not test_results.get("passed", False):
-        risk_score += 0.4
-
+    # Test results: a release with no tests at all is unknown risk and must
+    # never be rubber-stamped as safe -- treat it like a test failure
+    # (at minimum a hold) rather than scoring 0.0 -> approve.
+    passed = test_results.get("passed", False)
     failed_tests = test_results.get("failed_tests", 0)
-    total_tests = test_results.get("total_tests", 1)
-    if total_tests > 0:
-        risk_score += (failed_tests / total_tests) * 0.2
+    total_tests = test_results.get("total_tests", 0)
+    if total_tests == 0:
+        risk_score += 0.4
+    else:
+        if not passed:
+            risk_score += 0.4
+        # 100% failure must be able to reach reject on its own:
+        # 0.4 (flat) + 1.0 (ratio) * 0.3 = 0.7 -> reject threshold.
+        risk_score += (failed_tests / total_tests) * 0.3
 
-    # Security issues increase risk
+    # Security issues increase risk (lows count too -- previously ignored,
+    # so 50 low findings scored 0.0 and approved).
     critical = security_results.get("critical", 0)
     high = security_results.get("high", 0)
     medium = security_results.get("medium", 0)
+    low = security_results.get("low", 0)
 
     risk_score += critical * 0.15
     risk_score += high * 0.08
     risk_score += medium * 0.03
+    risk_score += low * 0.01
 
-    # Large changes increase risk
-    files_changed = len(commit_data.get("files_changed", []))
-    if files_changed > 10:
+    # Change size: file count AND diff churn (additions+deletions). The old
+    # code only looked at file count, so a 100k-line single-file diff
+    # scored 0.0.
+    files_changed = commit_data.get("files_changed", [])
+    n_files = len(files_changed)
+    if n_files > 10:
         risk_score += 0.1
-    elif files_changed > 5:
+    elif n_files > 5:
         risk_score += 0.05
 
-    # Sensitive modules increase risk
-    sensitive_modules = ["auth", "payment", "security", "database", "migration"]
-    for f in commit_data.get("files_changed", []):
-        for module in sensitive_modules:
-            if module in f.lower():
-                risk_score += 0.05
+    churn = (commit_data.get("additions") or 0) + (commit_data.get("deletions") or 0)
+    if churn > 1000:
+        risk_score += 0.1
+    elif churn > 100:
+        risk_score += 0.05
 
-    risk_score = min(risk_score, 1.0)
+    # Sensitive modules: token-based matching, at most one hit per file.
+    # The old substring check double-counted ("auth_security.py" -> +0.10)
+    # and false-positived ("author.py" contains "auth" -> +0.05).
+    sensitive_modules = {"auth", "payment", "security", "database", "migration"}
+    for f in files_changed:
+        if not isinstance(f, str):
+            continue
+        hit = False
+        for part in f.lower().replace("\\", "/").split("/"):
+            stem = part.rsplit(".", 1)[0]
+            if set(re.split(r"[_\-\.]", stem)) & sensitive_modules:
+                hit = True
+                break
+        if hit:
+            risk_score += 0.05
+
+    # Commit-message risk keywords (previously a dead input even though the
+    # LLM prompt advertises the message as an input).
+    message = (commit_data.get("message") or "").lower()
+    risk_keywords = (
+        "hotfix", "urgent", "breaking", "cve", "vulnerability",
+        "security fix", "rollback", "revert",
+    )
+    if any(kw in message for kw in risk_keywords):
+        risk_score += 0.05
+
+    # Round BEFORE deciding: the stored score and the decision are derived
+    # from the same value, so the dashboard can never show a risk bucket
+    # that contradicts the recorded verdict (previously raw 0.395 ->
+    # "approve" was stored as 0.4, which reads as "hold").
+    risk_score = round(min(risk_score, 1.0), 2)
 
     # Make decision
     if risk_score >= 0.7 or critical > 0:
@@ -133,9 +175,11 @@ def _rule_based_evaluation(commit_data: dict, test_results: dict, security_resul
         recommendations.append("Fix all critical security vulnerabilities immediately")
     if high > 0:
         recommendations.append(f"Address {high} high-severity security issues")
-    if failed_tests > 0:
+    if total_tests == 0:
+        recommendations.append("No tests were executed for this release -- add test coverage before releasing")
+    elif failed_tests > 0:
         recommendations.append(f"Fix {failed_tests} failing tests before release")
-    if files_changed > 10:
+    if n_files > 10 or churn > 1000:
         recommendations.append("Consider breaking this into smaller releases due to large changeset")
     if not recommendations:
         recommendations.append("No immediate action required. Proceed with standard release process.")

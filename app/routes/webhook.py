@@ -36,11 +36,12 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     if not WEBHOOK_SECRET:
+        # Only reachable when ALLOW_UNSIGNED_WEBHOOKS is enabled (otherwise
+        # verification above already rejected the delivery).
         logger.warning(
-            "WEBHOOK_SECRET is not configured - signature verification is "
-            "effectively disabled and this endpoint accepts unsigned "
-            "requests. Set WEBHOOK_SECRET (and the same value in GitHub's "
-            "webhook settings) before exposing this endpoint publicly."
+            "WEBHOOK_SECRET is not configured and ALLOW_UNSIGNED_WEBHOOKS is "
+            "enabled - this endpoint accepts unsigned requests. Do not "
+            "expose it publicly in this mode."
         )
 
     try:

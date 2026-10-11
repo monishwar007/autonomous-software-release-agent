@@ -2,6 +2,8 @@ import hmac
 import hashlib
 from typing import Optional
 
+from app.config import ALLOW_UNSIGNED_WEBHOOKS
+
 
 def verify_github_signature(payload_body: bytes, signature_header: Optional[str], secret: str) -> bool:
     """Verify GitHub's HMAC-SHA256 webhook signature.
@@ -16,13 +18,15 @@ def verify_github_signature(payload_body: bytes, signature_header: Optional[str]
     information that could help an attacker guess a valid signature
     byte-by-byte.
 
-    Returns True (verification "passes") when no secret is configured at
-    all -- this keeps local/demo use working without forcing webhook setup,
-    but callers should log a clear warning whenever they rely on this path,
-    since it means signatures aren't actually being checked.
+    FAILS CLOSED when no secret is configured: returns False unless the
+    ALLOW_UNSIGNED_WEBHOOKS opt-in is enabled (local demo use only).
+    Previously this returned True with no secret, which meant anyone who
+    discovered the webhook URL could forge deliveries -- including forged
+    push events that trigger expensive analysis jobs and commit-status
+    post-backs made with the server's GitHub token.
     """
     if not secret:
-        return True
+        return ALLOW_UNSIGNED_WEBHOOKS
 
     if not signature_header or not signature_header.startswith("sha256="):
         return False

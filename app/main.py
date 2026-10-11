@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -37,7 +37,15 @@ if os.path.exists(frontend_dir):
 
     @app.get("/{full_path:path}")
     async def serve_react(full_path: str):
-        file_path = os.path.join(frontend_dir, full_path)
+        # Jail the resolved path inside frontend_dir. Without this, ".."
+        # segments (possibly URL-encoded, since Starlette decodes path
+        # params before we see them) escape the directory and os.path.isfile
+        # resolves them at the OS level -- any file on disk becomes readable
+        # through this route (path traversal).
+        base_dir = os.path.realpath(frontend_dir)
+        file_path = os.path.realpath(os.path.join(frontend_dir, full_path))
+        if file_path != base_dir and not file_path.startswith(base_dir + os.sep):
+            raise HTTPException(status_code=403, detail="Forbidden")
         if os.path.isfile(file_path):
             return FileResponse(file_path)
         return FileResponse(os.path.join(frontend_dir, "index.html"))

@@ -16,5 +16,12 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "")
 # /webhook/github requests genuinely came from GitHub.
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
+# Opt-in to accept unsigned GitHub webhooks (local demo use only).
+# Signature verification FAILS CLOSED by default: with no WEBHOOK_SECRET
+# configured, deliveries are rejected unless this is explicitly enabled.
+ALLOW_UNSIGNED_WEBHOOKS = os.getenv("ALLOW_UNSIGNED_WEBHOOKS", "").lower() in (
+    "1", "true", "yes",
+)
+
 # App Security
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")

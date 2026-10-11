@@ -1,5 +1,6 @@
 import hmac
 import hashlib
+from unittest.mock import patch
 
 from app.utils.webhook_security import verify_github_signature
 
@@ -12,11 +13,20 @@ def _sign(body: bytes, secret: str) -> str:
     return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
-def test_no_secret_configured_always_passes():
-    """Demo/local-dev mode: without a configured secret, verification is a
-    no-op so the endpoint still works without forcing webhook setup."""
-    assert verify_github_signature(BODY, None, secret="") is True
-    assert verify_github_signature(BODY, "sha256=garbage", secret="") is True
+def test_no_secret_configured_rejects_by_default():
+    """Fail-closed: without a configured secret, verification rejects --
+    forged deliveries must not be accepted just because the operator
+    forgot to set WEBHOOK_SECRET."""
+    assert verify_github_signature(BODY, None, secret="") is False
+    assert verify_github_signature(BODY, "sha256=garbage", secret="") is False
+
+
+def test_unsigned_webhooks_allowed_with_explicit_opt_in():
+    """Local/demo escape hatch: ALLOW_UNSIGNED_WEBHOOKS=true restores the
+    old permissive behavior explicitly."""
+    with patch("app.utils.webhook_security.ALLOW_UNSIGNED_WEBHOOKS", True):
+        assert verify_github_signature(BODY, None, secret="") is True
+        assert verify_github_signature(BODY, "sha256=garbage", secret="") is True
 
 
 def test_valid_signature_passes():
